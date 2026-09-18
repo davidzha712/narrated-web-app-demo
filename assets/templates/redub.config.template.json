@@ -1,0 +1,23 @@
+{
+  "narration": "i18n/narration.json",
+  "audioDir": "audio",
+  "outputPrefix": "demo-final",
+  "crf": 18,
+  "ffmpeg": "bin/ffmpeg",
+  "ffprobe": "bin/ffprobe",
+  "subtitle": {
+    "fontLatin": "Helvetica Neue",
+    "fontCjk": "PingFang SC",
+    "fontSize": 64,
+    "boxColor": "0x141414@0.74",
+    "boxBorder": 26,
+    "marginBottom": 300,
+    "maxLatin": 54,
+    "maxCjk": 26
+  },
+  "outro": { "bg": "0xF5F5F6" },
+  "parts": [
+    { "key": "login-intro", "yaml": "login-intro.yaml", "video": "login-intro.mp4", "titleCardMs": 3500, "outro": false },
+    { "key": "main-demo",   "yaml": "main-demo.yaml",   "video": "main-demo.mp4",   "titleCardMs": 0,    "outro": true }
+  ]
+}

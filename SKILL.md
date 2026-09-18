@@ -1,6 +1,6 @@
 ---
 name: narrated-web-app-demo
-description: Create narrated, voice-over screen-recording demo videos of web applications — including authenticated apps behind SSO/login. Drives a real browser through scripted UI actions with an animated cursor and button highlights, generates per-segment TTS narration, and renders a 4K MP4. Use when asked to "make a demo video", "record a product walkthrough", "screen recording with voiceover", "演示视频", "录制产品演示", or to showcase the features of a web app. Built on top of the `ndemo` toolkit (github.com/splitbrain/ndemo) plus enhancements for authenticated apps, file upload, multi-provider TTS, and reliable headless rendering.
+description: Create narrated, voice-over screen-recording demo videos of web applications — including authenticated apps behind SSO/login. Drives a real browser through scripted UI actions with an animated cursor and button highlights, generates per-segment TTS narration, and renders a 4K MP4. Use when asked to "make a demo video", "record a product walkthrough", "screen recording with voiceover", "演示视频", "录制产品演示", or to showcase the features of a web app. Built on top of the `ndemo` toolkit (github.com/splitbrain/ndemo) plus enhancements for authenticated apps, file upload, multi-provider TTS, and reliable headless rendering. 中文触发 — 产品演示视频, 给投资人看的演示, 功能录制, 教程视频, 制作演示视频.
 allowed-tools: [Bash, Read, Write, Edit, Glob, Grep]
 ---
 
@@ -24,21 +24,47 @@ pieces needed for real-world product demos:
 - **Reliability fixes** — Retina-correct interactive window, popup suppression
   (translate / save-password / notifications), `exact` role-name matching,
   and a `close` that preserves the profile instead of wiping it.
+- **Re-dub + subtitles (no re-record)** — turn a finished recording into other
+  languages and burn minimalist subtitles, without driving the live app again.
 
-## Setup (once)
+## What the agent does from one sentence
+
+When the user says e.g. *"make a demo of <app> in German, English and Chinese with
+subtitles"*, you run the whole thing — the user only logs in once (SSO can't be
+automated for them) and approves. Your loop:
+
+1. **Prereqs** — `bash scripts/setup.sh` in the project (downloads a freetype
+   ffmpeg into `bin/`, checks node/yq/fonts, scaffolds `.env`,
+   `redub.config.json`, `i18n/narration.json`, updates `.gitignore`). Then
+   `bash scripts/install.sh` for the ndemo engine (only needed to *record*).
+2. **You author the playbook + narration** — write segments (one feature each) and
+   the spoken narration yourself. Do NOT ask the user to write narration. Follow
+   `references/authoring-narration.md` for length/timing/tone.
+3. **Record once** — `$NDEMO open`, user logs in, `$NDEMO capture-auth`, iterate
+   segments (`page-state` → actions → `play --segment`), then `$NDEMO render`.
+4. **Other languages** — translate narration into `i18n/narration.json`, then
+   `redub-tts` + `redub` per language (no re-record). Languages without a `tts`
+   entry get subtitles-only over the original audio.
+5. **Verify** — extract one frame per segment per language; eyeball sync + subs.
+
+So "one sentence" still implies: the user provides the app URL, performs the login
+when prompted, and approves the result. Everything else is yours.
+
+## Setup (once per machine/project)
 
 ```bash
-bash scripts/install.sh            # installs to ~/.claude/skills/ndemo
-# or: bash scripts/install.sh /path/to/ndemo
+bash scripts/setup.sh              # ffmpeg(+freetype) into bin/, deps + font check, scaffolds config/.env
+bash scripts/install.sh            # ndemo engine -> ~/.claude/skills/ndemo (only to RECORD new demos)
 ```
 
-This clones `splitbrain/ndemo`, applies `patches/ndemo-enhancements.patch`,
-runs `npm install && npm run build`, and installs the Playwright browser.
-Set a TTS key in your shell (never commit it):
+`setup.sh` is the important new step: Homebrew's default `ffmpeg` is **minimal**
+(no freetype/libass → no `drawtext`/`subtitles`), so subtitle burning fails. It
+fetches a full static ffmpeg into `bin/` and the redub scripts use it. Put the TTS
+key in `.env` (git-ignored), not the shell:
 
 ```bash
-export OPENAI_API_KEY=...        # for the default OpenAI voices
-export MINIMAX_API_KEY=...        # for MiniMax voices (provider: minimax)
+echo 'MINIMAX_API_KEY=...' > .env        # for MiniMax voices (provider: minimax)
+# OPENAI_API_KEY=... also works for upstream OpenAI voices during recording
 ```
 
 Throughout, `NDEMO=~/.claude/skills/ndemo/ndemo`.
@@ -172,6 +198,34 @@ polish:
 - **idle speed-up** — not a flag: use smart `done: { stable: ... }` waits so a
   segment ends the moment the page settles (no dead time). `done` is non-fatal.
 
+## Re-dub into other languages + burn subtitles (no re-record)
+
+Already have a finished recording and want English / Chinese / … versions with
+subtitles? Do **not** re-render (it re-drives the live app and, for LLM apps,
+changes the on-screen output). Reuse the recorded pixels: swap the narration audio
+and burn minimalist subtitles.
+
+```bash
+cp ~/.claude/skills/narrated-web-app-demo/assets/templates/redub.config.template.json   redub.config.json
+cp ~/.claude/skills/narrated-web-app-demo/assets/templates/narration.template.json      i18n/narration.json
+# fill narration.json (per-part text per language + outro cards + tts voices)
+set -a; . ./.env; set +a                       # MINIMAX_API_KEY
+node ~/.claude/skills/narrated-web-app-demo/scripts/redub-tts.mjs en   # synth audio-en/
+node ~/.claude/skills/narrated-web-app-demo/scripts/redub.mjs    en    # -> demo-final-en.mp4
+node ~/.claude/skills/narrated-web-app-demo/scripts/redub.mjs    de    # original lang: subtitles only
+```
+
+- A language **with** a `tts.<lang>` entry → full re-dub (TTS audio at the original
+  segment offsets, fit-to-window, translated end card).
+- A language **without** one → keep-audio mode (original audio untouched, subtitles
+  only, original end card kept) — perfect for subtitling the original language.
+- Subtitles are rendered with `drawtext`, **not libass** (libass injects a phantom
+  comma glyph on multi-event files). Needs an ffmpeg with freetype — Homebrew's
+  default ffmpeg is minimal; fetch a full static build (see the reference).
+
+See `references/redub-and-subtitles.md` for the full how-to, the libass gotcha, and
+the ffmpeg/font setup.
+
 ## References
 
 - `references/authenticated-apps.md` — capture/restore auth, scripted SSO login,
@@ -179,7 +233,14 @@ polish:
 - `references/gotchas.md` — every hard-won lesson: timing/sync, render crashes,
   Retina window, popup suppression, native `<select>` handling, exact matching,
   file upload.
-- `assets/templates/` — ready-to-edit playbook templates.
+- `references/redub-and-subtitles.md` — re-dub a finished recording into other
+  languages + burn minimalist subtitles without re-recording (drawtext, not
+  libass; ffmpeg-with-freetype setup; keep-audio vs dub modes).
+- `references/authoring-narration.md` — how to write narration + translations that
+  fit the segment windows (you author these, not the user): length, timing, tone.
+- `scripts/setup.sh` — per-machine prep: static ffmpeg, dependency + font checks,
+  config/.env scaffolding.
+- `assets/templates/` — ready-to-edit playbook + re-dub templates.
 
 ## Credit
 

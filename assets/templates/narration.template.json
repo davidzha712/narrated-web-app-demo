@@ -1,0 +1,21 @@
+{
+  "_comment": "Per-part, per-language narration. A language WITHOUT a tts entry runs in keep-audio mode (subtitles only, original audio + original end card kept). A language WITH a tts entry is fully re-dubbed (TTS audio + translated end card).",
+  "main-demo": {
+    "de": { "intro": "Original-Sprache hier ...", "feature-a": "..." },
+    "en": { "intro": "English narration here ...", "feature-a": "..." },
+    "zh": { "intro": "中文旁白 ...", "feature-a": "..." }
+  },
+  "login-intro": {
+    "de": { "login": "..." },
+    "en": { "login": "..." },
+    "zh": { "login": "..." }
+  },
+  "outro": {
+    "en": { "title": "Thank you", "subtitle": "Tagline · call to action." },
+    "zh": { "title": "谢谢观看", "subtitle": "副标题 · 行动号召。" }
+  },
+  "tts": {
+    "en": { "voice": "Calm_Woman", "language": "English", "speed": 1 },
+    "zh": { "voice": "Calm_Woman", "language": "Chinese", "speed": 1 }
+  }
+}
