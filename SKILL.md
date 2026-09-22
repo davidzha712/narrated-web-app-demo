@@ -34,6 +34,12 @@ bash scripts/install.sh            # installs to ~/.claude/skills/ndemo
 
 This clones `splitbrain/ndemo`, applies `patches/ndemo-enhancements.patch`,
 runs `npm install && npm run build`, and installs the Playwright browser.
+
+`patches/ndemo-action-if.patch` is a separate, optional patch applied **after**
+the main one. It makes `if: { visible | hidden | url }` work on segment actions
+(it already worked on `app.setup` steps), so a playbook can step through a
+first-visit tour without failing the render on the run where the tour does not
+appear.
 Set a TTS key in your shell (never commit it):
 
 ```bash
@@ -178,7 +184,11 @@ polish:
   recording the login screen, the profile-lock and `close` pitfalls.
 - `references/gotchas.md` — every hard-won lesson: timing/sync, render crashes,
   Retina window, popup suppression, native `<select>` handling, exact matching,
-  file upload.
+  file upload, and the production-run section at the end (silent-video concat,
+  single-use auth tokens, the daemon's silent exit and profile lock).
+- `references/post-production.md` — framing the raw render inside a 4K browser
+  chrome image, title/outro cards, burned-in subtitles, and the concat rule that
+  keeps the audio audible.
 - `assets/templates/` — ready-to-edit playbook templates.
 
 ## Credit

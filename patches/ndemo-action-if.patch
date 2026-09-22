@@ -1,0 +1,39 @@
+diff --git a/src/executor.ts b/src/executor.ts
+index e4e4675..c1eef30 100644
+--- a/src/executor.ts
++++ b/src/executor.ts
+@@ -24,6 +24,22 @@ async function executeAction(
+ ): Promise<void> {
+   const showCursor = options.cursor ?? false;
+ 
++  // Optional guard: skip this action when its condition is not met. Mirrors
++  // the setup-step `if`, so a playbook can step through a first-visit guide
++  // without failing the whole render when the guide does not appear.
++  if (action.if) {
++    const cond = action.if;
++    if (cond.visible && await page.locator(cond.visible).count() === 0) return;
++    if (cond.hidden && await page.locator(cond.hidden).count() > 0) return;
++    if (cond.url) {
++      const pattern = cond.url
++        .replace(/[.+^${}()|[\]\\]/g, "\\$&")
++        .replace(/\*\*/g, ".*")
++        .replace(/\*/g, "[^/]*");
++      if (!new RegExp(`^${pattern}$`).test(page.url())) return;
++    }
++  }
++
+   if (action.type === "wait") {
+     await page.waitForTimeout(action.duration ?? 1000);
+     return;
+diff --git a/src/schema.ts b/src/schema.ts
+index d0aeb53..5d5ca60 100644
+--- a/src/schema.ts
++++ b/src/schema.ts
+@@ -65,6 +65,7 @@ const ActionBaseSchema = z.object({
+   option: z.string().optional(),
+   files: z.array(z.string()).optional(),
+   done: DoneConditionSchema.optional(),
++  if: ConditionSchema.optional(),
+ });
+ 
+ const actionRefine = (action: { type: string; target?: unknown }) => {

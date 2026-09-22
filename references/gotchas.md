@@ -88,3 +88,127 @@ Target `[multiple]` to avoid matching a separate camera/image input.
 without re-running an expensive prefix, make a tiny single-segment
 `scratch.yaml` and `play --segment` it — the daemon is shared, so it acts on the
 same live browser.
+
+---
+
+# Lessons from a 4-video, 52-segment production run (2026-09)
+
+These come from recording a real multi-role product tour of an authenticated
+Next.js app. Every one cost an hour or more.
+
+## Silent video: concat with `-c copy` across mismatched channel counts
+
+The single worst failure of that run, because **every automated check passed.**
+
+A post-production chain that prepends a title card and appends an outro:
+
+```bash
+ffmpeg -f concat -safe 0 -i concat.txt -c copy out.mp4     # BROKEN
+```
+
+The cards' silent tracks were generated with
+`anullsrc=channel_layout=stereo` (2 channels). The body came from ndemo's
+render, whose narration track is **mono** (1 channel). In an MP4 the
+`AudioSpecificConfig` is written once, from the *first* input — so the
+container declares stereo while the body's packets are mono.
+
+FFmpeg's own AAC decoder reconfigures per frame, so `ffprobe`, `volumedetect`
+and `ffplay` all report healthy audio. **QuickTime and Safari play it
+silent.** The verification tool and the target player disagree, which is
+exactly why self-checking missed it.
+
+Fix — re-encode audio on the concat step, never `-c copy`:
+
+```bash
+ffmpeg -f concat -safe 0 -i concat.txt \
+  -c:v copy -c:a aac -ac 2 -ar 44100 -b:a 192k -f mp4 out.mp4
+```
+
+Then verify the *channel count*, not the loudness:
+
+```bash
+ffprobe -v error -select_streams a:0 -show_entries stream=channels,sample_rate -of csv=p=0 out.mp4
+```
+
+Corollary: if an intermediate step uses `-c:a copy` (a subtitle burner, a
+frame compositor), mono propagates through it invisibly. Only the final mux
+has to be right, but only the final mux can fix it.
+
+## `ffmpeg` picks the muxer from the extension
+
+Writing to `out.mp4.new` (a common "write then `mv`" pattern) fails with
+`Unable to choose an output format for 'out.mp4.new'` and exit 234. Either
+write to a standard extension, or pass `-f mp4` explicitly. Always pass `-f`
+when the name is generated.
+
+## `volumedetect` prints at `info` level
+
+`ffmpeg -v error -af volumedetect ...` prints nothing at all, which reads as
+"no audio". Use `-hide_banner` and leave the log level alone.
+
+## A captured session's refresh token can be single-use
+
+Supabase (and any auth with rotating refresh tokens) invalidates the old token
+the moment it is redeemed. If you "verify" `.ndemo/auth.json` by loading it in
+a throwaway browser context, that context redeems the token and **the copy on
+disk is now dead** — the render then lands on the login page. Capture it, do
+not test it; the render is the test.
+
+## `open` exits silently when the app redirects to login
+
+`browser-daemon.ts` prints its `wsEndpoint`, then reopens stdout/stderr onto
+`.ndemo/daemon.log`, then navigates, then calls `setBrowserZoom`. If the app
+bounces to a login route during that window, the zoom extension call races the
+navigation and the daemon dies **after** the parent has already been told it
+started. The parent sees success; nothing works afterwards.
+
+Symptom: `open` returns cleanly, every later command times out. Read
+`.ndemo/daemon.log` — it is the only place the error went.
+
+## There is no `navigate` action
+
+Segments act on whatever page the previous segment left behind. A segment that
+follows a link out of the app shell (an external doc, a logout, a 404) strands
+**every subsequent segment**, and the render keeps going, producing 20 shots
+of the same wrong screen. Move between app routes by clicking real nav links,
+and re-check the final frame of any segment that navigates.
+
+## An opened dialog leaves an `aria-hidden` backdrop that eats clicks
+
+Product tours, onboarding modals and command palettes typically mark the rest
+of the page `aria-hidden` and overlay a backdrop. If a segment opens one and
+does not close it, every later click resolves to the backdrop. Nothing errors
+— the actions "succeed" and the UI never changes.
+
+Close what you open, in the same segment, and prefer normalising the app's own
+first-visit state before recording (clear or set the localStorage flags that
+gate the tour) over scripting your way through it.
+
+## The daemon's profile lock kills the render *after* TTS is paid for
+
+`browser-daemon.ts` uses `.ndemo/browser-profile` as a persistent
+`userDataDir`. A still-running daemon holds Chromium's `ProcessSingleton` lock,
+and the render fails to launch — but only after synthesising every segment's
+narration, so a paid TTS provider has already been billed for the whole run.
+Run `$NDEMO close` before `render`, every time, and treat a leftover
+`browser-profile` directory as a launch hazard.
+
+## `if:` on a segment action (patch `ndemo-action-if.patch`)
+
+`app.setup` steps support `if:`; segment actions did **not** — the schema
+accepted the key and the executor ignored it, so a playbook that guards
+"click Next if the tour appeared" silently ran the click unconditionally and
+crashed on the run where the tour did not appear. `patches/ndemo-action-if.patch`
+adds `visible` / `hidden` / `url` guards to segment actions, mirroring setup.
+
+## Selector notes from this run
+
+- `a[href='/some/route'] >> nth=0` is the reliable way to reach a nav
+  destination that has no unique accessible name (a sidebar link duplicated in
+  a breadcrumb, an icon link).
+- A native `<select>` is targeted by its label:
+  `target: { label: "Filter by discipline" }`, with `option:` matching the
+  option text. Clearing it is `option: ""`.
+- A role-switcher ("view as") is a `select` in, and a named button
+  (`Back to admin`) out. Switching roles mid-playbook changes the whole nav
+  tree — put each role in its own playbook instead.
