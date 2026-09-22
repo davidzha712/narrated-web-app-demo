@@ -28,12 +28,22 @@ mismatch shows as a hairline of background along one edge.
 Generate a still with Pillow, then a clip with a **silent** audio track:
 
 ```bash
-ffmpeg -y -loop 1 -i title.png -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \
+ffmpeg -y -loop 1 -i title.png -f lavfi -i anullsrc=channel_layout=mono:sample_rate=44100 \
   -t 3 -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac -shortest title.mp4
 ```
 
-Note `channel_layout=stereo`. This is exactly where the mono/stereo mismatch in
-gotchas.md is born — see step 4.
+**The card text belongs in the playbook's `titleCard:` / `outro:` block, not in
+a shell argument.** A compositing script that caches the rendered PNG
+(`[ -f title.png ] || card.py "$TITLE" ...`) silently ignores the text you pass
+on a re-run, so a changed title takes no effect and no error says so. Worse,
+after the run the only record of what the card said is the PNG itself — the
+argument is gone with the shell history. Put the strings in the playbook and
+have the script read them from there.
+
+`channel_layout=mono` matches the narration track ndemo renders. Write
+`stereo` here and the concat in step 4 gets mixed channel counts — the two
+failures documented in gotchas.md (silent in QuickTime, or audible artifacts)
+both start on this line.
 
 ## Step 3 — burn the subtitles
 
@@ -57,19 +67,32 @@ and any channel-count problem gets fixed in the final mux, not here.
 ```bash
 printf "file 'title.mp4'\nfile 'body-sub.mp4'\nfile 'outro.mp4'\n" > concat.txt
 ffmpeg -y -f concat -safe 0 -i concat.txt \
-  -c:v copy -c:a aac -ac 2 -ar 44100 -b:a 192k -f mp4 final.mp4
+  -c:v copy -c:a aac -ac 1 -ar 44100 -b:a 192k -f mp4 final.mp4
 ```
 
-**Never `-c copy` here.** The cards are stereo, the body is mono, and stream
-copy writes one `AudioSpecificConfig` from the first input — the result plays
-silent in QuickTime and Safari while ffprobe reports healthy audio. Full
-explanation in `gotchas.md`.
+Every input is mono by now (step 2 made the cards mono, step 1 and step 3 pass
+the narration through with `-c:a copy`), so this is one channel count in, one
+channel count out, one encode. Two things are forbidden here, and they are the
+same rule seen from both sides — **the channel count is decided at the source,
+never at the mux**:
 
-Verify:
+- **Never `-c copy`.** Stream copy writes one `AudioSpecificConfig` from the
+  first input; if the inputs ever disagree, the result plays silent in
+  QuickTime and Safari while ffprobe reports healthy audio.
+- **Never `-ac 2`.** Upmixing a concat of mixed-channel inputs through one AAC
+  encoder produces audible artifacts. It looks like a fix and is not.
+
+Full explanation of both in `gotchas.md`.
+
+Verify — channel count, then the per-channel numbers:
 
 ```bash
 ffprobe -v error -select_streams a:0 -show_entries stream=channels,sample_rate -of csv=p=0 final.mp4
-# expect: 2,44100
+# expect: 1,44100
+
+ffmpeg -hide_banner -nostats -i final.mp4 -map a:0 -af astats -f null - 2>&1 \
+  | grep -E "Channel:|Peak level|RMS level|Peak count"
+# expect: one `Channel: 1` block, numbers matching the raw narration
 ```
 
 ## Estimating `audioDuration` before you have audio

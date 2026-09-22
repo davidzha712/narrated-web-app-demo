@@ -184,8 +184,9 @@ polish:
   recording the login screen, the profile-lock and `close` pitfalls.
 - `references/gotchas.md` — every hard-won lesson: timing/sync, render crashes,
   Retina window, popup suppression, native `<select>` handling, exact matching,
-  file upload, and the production-run section at the end (silent-video concat,
-  single-use auth tokens, the daemon's silent exit and profile lock).
+  file upload, and the production-run section at the end (the two opposite
+  concat audio failures — silent in QuickTime, and upmix artifacts — single-use
+  auth tokens, the daemon's silent exit and profile lock).
 - `references/post-production.md` — framing the raw render inside a 4K browser
   chrome image, title/outro cards, burned-in subtitles, and the concat rule that
   keeps the audio audible.

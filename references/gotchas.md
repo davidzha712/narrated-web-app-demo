@@ -117,11 +117,16 @@ and `ffplay` all report healthy audio. **QuickTime and Safari play it
 silent.** The verification tool and the target player disagree, which is
 exactly why self-checking missed it.
 
-Fix — re-encode audio on the concat step, never `-c copy`:
+Fix — make every input the *same* channel count, and re-encode on the concat
+step (never `-c copy`). The narration is mono, so generate the cards' silence
+mono too and mux mono out:
 
 ```bash
+# cards
+ffmpeg ... -f lavfi -i anullsrc=channel_layout=mono:sample_rate=44100 ... title.mp4
+# final mux
 ffmpeg -f concat -safe 0 -i concat.txt \
-  -c:v copy -c:a aac -ac 2 -ar 44100 -b:a 192k -f mp4 out.mp4
+  -c:v copy -c:a aac -ac 1 -ar 44100 -b:a 192k -f mp4 out.mp4
 ```
 
 Then verify the *channel count*, not the loudness:
@@ -133,6 +138,47 @@ ffprobe -v error -select_streams a:0 -show_entries stream=channels,sample_rate -
 Corollary: if an intermediate step uses `-c:a copy` (a subtitle burner, a
 frame compositor), mono propagates through it invisibly. Only the final mux
 has to be right, but only the final mux can fix it.
+
+## `-ac 2` is not the fix — it is the next bug
+
+The obvious repair for the mismatch above is to upmix everything to stereo on
+the final encoder: `-c:a aac -ac 2`. It produces a file that passes every
+check *and sounds wrong* — audible artifacts through the narration.
+
+Feeding one AAC encoder a concat of mixed-channel inputs while asking it to
+resample to 2 channels is where the damage happens. The evidence is in
+`astats`: a genuine 1→2 upmix writes two **identical** channels, so any
+difference between them proves the samples were mangled, not copied. The
+broken run read:
+
+```
+Channel: 1   Peak level dB: -3.581856   Peak count: 2
+Channel: 2   Peak level dB: -8.191109   Peak count: 16
+```
+
+The fix is the one above — keep the whole chain at one channel count and mux
+`-ac 1`. After that, `astats` prints a single `Channel: 1` block whose numbers
+match the source narration.
+
+Two rules that cannot both be relaxed:
+
+- **Never `-c copy`** on the concat (silent in QuickTime).
+- **Never `-ac 2`** over mixed-channel inputs (artifacts).
+
+Read them as one rule: the channel count must be decided at the *source*, not
+at the mux.
+
+## `astats` prints at `info` level too
+
+Same trap as `volumedetect` below, and it bites harder because `astats` is the
+only tool that shows the per-channel numbers the artifact check needs:
+
+```bash
+ffmpeg -hide_banner -nostats -i out.mp4 -map a:0 -af astats -f null - 2>&1 \
+  | grep -E "Channel:|Peak level|RMS level|Peak count"
+```
+
+`-v error` silences it completely, which reads as "clean".
 
 ## `ffmpeg` picks the muxer from the extension
 
