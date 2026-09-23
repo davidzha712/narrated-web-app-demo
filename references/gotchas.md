@@ -258,3 +258,22 @@ adds `visible` / `hidden` / `url` guards to segment actions, mirroring setup.
 - A role-switcher ("view as") is a `select` in, and a named button
   (`Back to admin`) out. Switching roles mid-playbook changes the whole nav
   tree — put each role in its own playbook instead.
+
+## 12. Subtitles drift off the narration — mixed frame rates in a stream-copy concat
+
+Symptom: title card in sync, then subtitles and voice drift apart more every
+second; by the end of a 90s video they are ~14s apart.
+
+Cause: lavfi `color=c=...:s=3840x2160` without `rate=` defaults to **25 fps**,
+and as the overlay base it sets the framed body's timing. The cards were 30 fps.
+`concat -c:v copy` accepts the mix without complaint; the result had 2144 frames
+= 71.47s of video against 85.79s of audio, and packet durations of `0.000065`
+where the rate changed.
+
+Fix: `color=...:rate=30` in the frame step, `-r 30` on card clips. Decide frame
+rate (like channel count) at the source, never at the mux.
+
+Diagnose: packet `duration_time` histogram must have exactly one value; video
+and audio stream durations must agree; silencedetect gaps should line up with
+srt cue boundaries.
+

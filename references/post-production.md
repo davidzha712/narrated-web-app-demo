@@ -13,7 +13,7 @@ at an offset.
 
 ```bash
 ffmpeg -y \
-  -f lavfi -i "color=c=#f6f4f3:s=3840x2160" \
+  -f lavfi -i "color=c=#f6f4f3:s=3840x2160:rate=30" \
   -i raw.mp4 -i chrome4k.png \
   -filter_complex "[0][1]overlay=48:160:shortest=1[a];[a][2]overlay=0:0" \
   -c:a copy -shortest framed.mp4
@@ -28,8 +28,8 @@ mismatch shows as a hairline of background along one edge.
 Generate a still with Pillow, then a clip with a **silent** audio track:
 
 ```bash
-ffmpeg -y -loop 1 -i title.png -f lavfi -i anullsrc=channel_layout=mono:sample_rate=44100 \
-  -t 3 -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac -shortest title.mp4
+ffmpeg -y -loop 1 -r 30 -i title.png -f lavfi -i anullsrc=channel_layout=mono:sample_rate=44100 \
+  -t 3 -r 30 -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac -shortest title.mp4
 ```
 
 **The card text belongs in the playbook's `titleCard:` / `outro:` block, not in
@@ -83,6 +83,23 @@ never at the mux**:
   encoder produces audible artifacts. It looks like a fix and is not.
 
 Full explanation of both in `gotchas.md`.
+
+**Frame rate is the video half of the same rule.** `-c:v copy` concats whatever
+frame rates it is handed, and lavfi `color=` without `rate=` is **25 fps** — the
+overlay base input sets the output timing, so step 1 silently makes a 25 fps body
+between 30 fps cards. Players then run the video ~1.2x fast against the audio and
+the subtitles drift further every second. Every clip must be 30 fps *before*
+this step: `:rate=30` in step 1, `-r 30` on the cards.
+
+Verify frame rate first — one packet duration, one count:
+
+```bash
+ffprobe -v error -select_streams v:0 -show_entries packet=duration_time -of csv=p=0 final.mp4 \
+  | sort | uniq -c | sort -rn | head
+# expect: a single line, 0.033333; any second value = mixed rates
+ffprobe -v error -show_entries stream=codec_type,duration -of csv=p=0 final.mp4
+# expect: video and audio durations within ~0.05s
+```
 
 Verify — channel count, then the per-channel numbers:
 
